@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Recording with Animation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #recordingStatus {
+            margin-top: 20px;
+            font-weight: bold;
+            color: green;
+        }
+        #outputText {
+            margin-top: 20px;
+            width: 80%;
+            padding: 10px;
+            font-size: 18px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            text-align: left;
+        }
+        #audioPlayer {
+            margin-top: 20px;
+            width: 100%;
+        }
+        .hidden {
+            display: none;
+        }
+        canvas {
+            width: 100%;
+            height: 100px;
+            border: 1px solid #ccc;
+            margin-top: 20px;
+        }
+        #uploadAudioContainer {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Audio Recording with Animation</h1>
+
+    <!-- Buttons for audio control -->
+    <button id="startRecording">Start Recording</button>
+    <button id="stopRecording" class="hidden">Stop Recording</button>
+    <button id="listenAudio" class="hidden">Listen</button>
+    <button id="sendAudio" class="hidden">Send</button>
+    <button id="deleteAudio" class="hidden">Delete</button>
+
+    <!-- Audio upload section -->
+    <div id="uploadAudioContainer">
+        <input type="file" id="audioFileInput" accept="audio/*">
+        <button id="uploadAudioButton">Upload Audio</button>
+    </div>
+
+    <!-- Canvas for audio visualization -->
+    <canvas id="audioCanvas"></canvas>
+
+    <!-- Audio player -->
+    <audio id="audioPlayer" controls></audio>
+
+    <!-- Recording status message -->
+    <p id="recordingStatus" class="hidden">Recording in progress...</p>
+
+    <!-- Output text area from the server -->
+    <textarea id="outputText" class="hidden" placeholder="Server output will appear here..."></textarea>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioBlob;
+        let audioUrl;
+
+        // Get references to the elements
+        const startRecordingButton = document.getElementById('startRecording');
+        const stopRecordingButton = document.getElementById('stopRecording');
+        const listenButton = document.getElementById('listenAudio');
+        const sendButton = document.getElementById('sendAudio');
+        const deleteButton = document.getElementById('deleteAudio');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const recordingStatus = document.getElementById('recordingStatus');
+        const outputTextArea = document.getElementById('outputText');
+        const audioCanvas = document.getElementById('audioCanvas');
+        const canvasContext = audioCanvas.getContext('2d');
+        const audioFileInput = document.getElementById('audioFileInput');
+        const uploadAudioButton = document.getElementById('uploadAudioButton');
+
+        // Setup Web Audio API context
+        let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;  // Size of FFT (Frequency data)
+        let bufferLength = analyser.frequencyBinCount;
+        let dataArray = new Uint8Array(bufferLength);
+
+        // Start recording
+        startRecordingButton.addEventListener('click', async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+
+            // Connect media recorder to Web Audio API for real-time visualization
+            let source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                audioUrl = URL.createObjectURL(audioBlob);
+                audioPlayer.src = audioUrl;
+
+                // Show listen, send, and delete buttons
+                listenButton.classList.remove('hidden');
+                sendButton.classList.remove('hidden');
+                deleteButton.classList.remove('hidden');
+            };
+
+            mediaRecorder.start();
+            startRecordingButton.classList.add('hidden');
+            stopRecordingButton.classList.remove('hidden');
+            recordingStatus.classList.remove('hidden');
+
+            // Start the animation for visualizing the audio input
+            visualize();
+        });
+
+        // Stop recording
+        stopRecordingButton.addEventListener('click', () => {
+            mediaRecorder.stop();
+            startRecordingButton.classList.remove('hidden');
+            stopRecordingButton.classList.add('hidden');
+            recordingStatus.classList.add('hidden');
+        });
+
+        // Listen to the recorded audio
+        listenButton.addEventListener('click', () => {
+            audioPlayer.play();
+        });
+
+        // Send the recorded audio file to the server
+        sendButton.addEventListener('click', async () => {
+            const formData = new FormData();
+            formData.append('audio_file', audioBlob, 'audio.wav'); // Send as .wav
+
+            const response = await fetch('http://163.180.117.216:8000/process_audio', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                outputTextArea.classList.remove('hidden');
+                outputTextArea.value = `Output from server: ${data.output_text}`;
+            } else {
+                alert('Error processing audio.');
+            }
+        });
+
+        // Delete the recorded audio and reset the UI
+        deleteButton.addEventListener('click', () => {
+            audioPlayer.src = '';
+            audioBlob = null;
+            audioChunks = [];
+            outputTextArea.classList.add('hidden');
+            listenButton.classList.add('hidden');
+            sendButton.classList.add('hidden');
+            deleteButton.classList.add('hidden');
+            startRecordingButton.classList.remove('hidden');
+        });
+
+        // Upload an audio file from input
+        uploadAudioButton.addEventListener('click', () => {
+            const file = audioFileInput.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('audio_file', file, file.name);
+
+                fetch('http://163.180.117.216:8000/process_audio', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    outputTextArea.classList.remove('hidden');
+                    outputTextArea.value = `Output from server: ${data.output_text}`;
+                })
+                .catch(error => {
+                    alert('Error uploading audio.');
+                });
+            } else {
+                alert('No audio file selected.');
+            }
+        });
+
+        // Visualize the audio data
+        function visualize() {
+            requestAnimationFrame(visualize);
+
+            analyser.getByteFrequencyData(dataArray);
+
+            canvasContext.fillStyle = 'rgb(200, 200, 200)';
+            canvasContext.fillRect(0, 0, audioCanvas.width, audioCanvas.height);
+
+            let barWidth = (audioCanvas.width / bufferLength) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                barHeight = dataArray[i];
+
+                canvasContext.fillStyle = 'rgb(' + (barHeight + 100) + ',50,50)';
+                canvasContext.fillRect(x, audioCanvas.height - barHeight / 2, barWidth, barHeight / 2);
+
+                x += barWidth + 1;
+            }
+        }
+    </script>
+
+</body>
+</html>
+
