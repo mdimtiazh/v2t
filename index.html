@@ -155,7 +155,7 @@
             const formData = new FormData();
             formData.append('audio_file', audioBlob, 'audio.wav'); // Send as .wav
 
-            const response = await fetch('https://163.180.117.216:8000/process_audio', {
+            const response = await fetch('https:///process_audio', {
                 method: 'POST',
                 body: formData
             });
